@@ -1,6 +1,7 @@
 {
   "projects": {
-    "SNEDLINK": "capstone-2-f0d29"
+    "SNEDLINK": "capstone-2-f0d29",
+    "default": "capstone-2-f0d29"
   },
   "targets": {},
   "etags": {}
