@@ -222,6 +222,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
     }
 
+    // ── settings (Admin Portal: general school settings + IEP settings) ──
+    // Read/written from admin.html as settings/main and settings/iep.
+    // Admin-only, same pattern as the record-keeping block below.
+    match /settings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // ── legacy Admin Portal bootstrap doc ───────────────────────────────
     // Kept so the very first administrator can still be created the
     // original way; every admin created from here on is also mirrored

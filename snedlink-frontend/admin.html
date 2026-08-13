@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2826,7 +2826,7 @@ const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
    ever logged in yet — but change this password immediately after
    your first login, and consider editing the values below to something
    only you know before your first real deploy. */
-const DEFAULT_ADMIN_EMAIL = "admin@snedlink.local";
+const DEFAULT_ADMIN_EMAIL = "killer.green029@gmail.com";
 const DEFAULT_ADMIN_PASSWORD = "ChangeMe@2026!";
 
 // Backend URL for the Express API that replaced Cloud Functions —
@@ -3621,7 +3621,7 @@ function doLogout(){
 }
 function rulesRegulationsHTML(){
   return `
-    <div class="muted mono" style="font-size:12.5px;margin-bottom:14px;">Version ${POLICY_VERSION} · Last Updated: ${POLICY_LAST_UPDATED}</div>
+    <div class="muted mono" style="font-size:12.5px;margin-bottom:14px;">Version ${POLICY_VERSION} Â· Last Updated: ${POLICY_LAST_UPDATED}</div>
 
     <h3 class="section-title">1. Purpose</h3>
     <p style="font-size:13.5px;line-height:1.6;margin:6px 0 14px;">These Rules & Regulations govern the use of the SNED-LINK+ Admin Portal by school administrators. They exist to protect the confidentiality, integrity, and availability of student, parent, teacher, and school records, and to keep the system's use aligned with its intended purpose of supporting special-needs education administration.</p>
@@ -4124,7 +4124,10 @@ function teacherFormHTML(t){
     <div class="field-group"><label class="field-label">Status</label>
       <select class="select" id="f-status"><option ${t.status==='Active'?'selected':''}>Active</option><option ${t.status==='Inactive'?'selected':''}>Inactive</option></select>
     </div>
-    ${t.id?'':'<div style="font-size:11.5px;color:rgba(0,0,0,.55);background:rgba(0,0,0,.04);border-radius:8px;padding:8px 10px;line-height:1.5">No password field here — saving creates a <b>pending</b> account and a one-time activation link/code you\'ll share with the teacher. They set their own password the first time they sign in.</div>'}
+    ${t.id?'':`
+    <div class="field-group"><label class="field-label">Password</label><input class="field" id="f-password" type="password" placeholder="At least 8 characters"></div>
+    <div style="font-size:11.5px;color:rgba(0,0,0,.55);background:rgba(0,0,0,.04);border-radius:8px;padding:8px 10px;line-height:1.5">Set a password to make the account active immediately, or leave this blank to create a <b>pending</b> account with a one-time activation link instead — the teacher then sets their own password on first sign-in.</div>
+    `}
   `;
 }
 
@@ -4148,6 +4151,9 @@ async function saveTeacher(id){
   const phone=document.getElementById('f-phone').value.trim();
   const status=document.getElementById('f-status').value;
   if(!name || !email){ toast('Please fill in the required fields.','danger'); return; }
+  const setPasswordNow = !id && document.getElementById('f-password') && document.getElementById('f-password').value.trim().length > 0;
+  const password = setPasswordNow ? document.getElementById('f-password').value : null;
+  if(setPasswordNow && password.length < 8){ toast('Password must be at least 8 characters.','danger'); return; }
   try{
     if(id){
       await db.collection('teachers').doc(id).update({name,email,section,phone,status});
@@ -4160,14 +4166,23 @@ async function saveTeacher(id){
       // Backend now handles this properly: server-side Admin SDK creates
       // the Firebase Auth account, users/{uid} login profile, teachers/{uid}
       // richer record, and the single-use teacherActivations token — all in
-      // one request. No admin-typed password anywhere — the account only
+      // one request. When no password is set here, the account only
       // becomes real when the teacher opens the one-time link and sets
       // their own password (teacher_portal.html calls POST /api/teachers/activate).
-      const res = await slApiCall('/api/admin/teachers', 'POST', {name,email,section,phone});
-      logAudit('Admin','Create','Teacher',`Added ${name} (pending activation)`);
+      // If a password IS set here, the backend must create the account as
+      // already-active with that password instead of issuing an activation
+      // token — see note below.
+      const payload = setPasswordNow ? {name,email,section,phone,password} : {name,email,section,phone};
+      const res = await slApiCall('/api/admin/teachers', 'POST', payload);
       closeModal();
       refreshView('teachers');
-      showTeacherActivationResult(name, email, res.activationToken, res.activationExpires);
+      if(setPasswordNow){
+        logAudit('Admin','Create','Teacher',`Added ${name} (password set by admin)`);
+        toast(`${name} added. Share the password you set with them directly.`,'success');
+      } else {
+        logAudit('Admin','Create','Teacher',`Added ${name} (pending activation)`);
+        showTeacherActivationResult(name, email, res.activationToken, res.activationExpires);
+      }
     }
   }catch(err){ toast('Save failed: '+(err.message||err),'danger'); return; }
 }
@@ -4193,7 +4208,7 @@ function deleteTeacher(id){
   if(!t) return;
   confirmDialog(`Archive ${t.name} from teacher records? You can restore this from the Archive page.`, async ()=>{
     try{
-      await sendToArchive('Teacher', t.name, `${t.section} · ${t.email}`, t);
+      await sendToArchive('Teacher', t.name, `${t.section} Â· ${t.email}`, t);
       toast('Teacher archived.','danger');
       logAudit('Admin','Archive','Teacher',`Archived ${t.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -4591,7 +4606,7 @@ function archiveTeacherActivation(id){
   const r = findTeacherActivation(id);
   confirmDialog(`Archive ${r.name}'s teacher access record? This can be restored later from Archive.`, async ()=>{
     try{
-      await sendToArchive('Teacher Activation', r.name, `${r.teacherId} · ${r.section}`, r);
+      await sendToArchive('Teacher Activation', r.name, `${r.teacherId} Â· ${r.section}`, r);
       toast(`${r.name}'s access record archived.`,'danger');
       logAudit('Admin','Archive','Teacher Access',`Archived access record for ${r.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -4712,7 +4727,7 @@ function deleteParent(id){
   if(!p) return;
   confirmDialog(`Archive ${p.name} from parent records? You can restore this from the Archive page.`, async ()=>{
     try{
-      await sendToArchive('Parent', p.name, `${p.children.join(', ')} · ${p.email}`, p);
+      await sendToArchive('Parent', p.name, `${p.children.join(', ')} Â· ${p.email}`, p);
       toast('Parent archived.','danger');
       logAudit('Admin','Archive','Parent',`Archived ${p.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -5155,7 +5170,7 @@ function archiveActivation(id){
   const r = findActivation(id);
   confirmDialog(`Archive ${r.name}'s parent access record? This can be restored later from Archive.`, async ()=>{
     try{
-      await sendToArchive('Parent Activation', r.name, `${r.parentId} · ${r.linkedStudent}`, r);
+      await sendToArchive('Parent Activation', r.name, `${r.parentId} Â· ${r.linkedStudent}`, r);
       toast(`${r.name}'s access record archived.`,'danger');
       logAudit('Admin','Archive','Parent Access',`Archived access record for ${r.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -5335,7 +5350,7 @@ function openActivationLetter(id){
       <div class="muted" style="font-size:13px;text-align:center;">Scan this QR code with any phone camera, or open the secure link below.</div>
       <div class="mono" style="text-align:center;margin-top:8px;word-break:break-all;font-size:12.5px;">${link}</div>
       <div class="muted" style="font-size:13px;text-align:center;margin-top:14px;">Download the Parent App: <span class="mono">${PARENT_APP.downloadUrl}</span></div>
-      <div class="muted" style="font-size:12.5px;text-align:center;margin-top:14px;">School Contact: ${esc(STATE.admin.email)} · ${esc(STATE.admin.phone)}</div>
+      <div class="muted" style="font-size:12.5px;text-align:center;margin-top:14px;">School Contact: ${esc(STATE.admin.email)} Â· ${esc(STATE.admin.phone)}</div>
     </div>
   `,`
     <button class="btn btn-ghost" onclick="closeModal()">Close</button>
@@ -5621,7 +5636,7 @@ function deleteStudent(id){
   if(!s) return;
   confirmDialog(`Archive ${s.name}'s student record? You can restore this from the Archive page.`, async ()=>{
     try{
-      await sendToArchive('Student', s.name, `${s.grade} - ${s.section} · ${s.condition}`, s);
+      await sendToArchive('Student', s.name, `${s.grade} - ${s.section} Â· ${s.condition}`, s);
       toast('Student archived.','danger');
       logAudit('Admin','Archive','Student',`Archived ${s.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -5669,7 +5684,20 @@ VIEW_RENDERERS.assignments = function(){
 };
 async function reassign(studentId){
   const s = STATE.students.find(x=>x.id===studentId);
+  if(!s){
+    // The row's underlying student record is no longer in STATE (e.g. it
+    // was deleted/archived, or the list refreshed between render and
+    // click). Re-render instead of crashing on s.name below.
+    toast('That student record changed — refreshing the list.','danger');
+    refreshView('assignments');
+    return;
+  }
   const sel = document.getElementById(`new-${assignTab}-${studentId}`);
+  if(!sel){
+    toast('Could not find the assignment dropdown for this row. Refreshing.','danger');
+    refreshView('assignments');
+    return;
+  }
   const val = sel.value;
   const field = assignTab==='teacher' ? 'teacher' : 'parent';
   try{
@@ -5681,9 +5709,14 @@ async function reassign(studentId){
 }
 function archiveAssignment(studentId){
   const s = STATE.students.find(x=>x.id===studentId);
+  if(!s){
+    toast('That student record changed — refreshing the list.','danger');
+    refreshView('assignments');
+    return;
+  }
   confirmDialog(`Archive the ${assignTab} assignment for ${s.name}? Their student record will be moved to Archive.`, async ()=>{
     try{
-      await sendToArchive('Student', s.name, `${s.grade} - ${s.section} · assignment archived (${assignTab})`, s);
+      await sendToArchive('Student', s.name, `${s.grade} - ${s.section} Â· assignment archived (${assignTab})`, s);
       toast(`${s.name}'s assignment archived.`,'danger');
       logAudit('Admin','Archive','Assignment',`Archived ${assignTab} assignment for ${s.name}`);
     }catch(err){ toast('Archive failed: '+err.message,'danger'); }
@@ -6202,7 +6235,7 @@ function iepRecordsTab(){
     ${statCard('archive','Archived IEPs',counts.archived,'Archived IEPs','flat','—')}
     ${statCard('bell','Expired IEPs',counts.expired,'Expired IEPs (review overdue)','down','—')}
     ${statCard('shieldOff','Missing Documents',counts.missing,'Missing Documents','down','—')}
-    ${statCard('download','Latest Upload',latestDoc?fmtDateShort(latestDoc.uploadDate):'—',latestDoc?esc(latestDoc.type+' · '+latestDoc.student):'No uploads yet','flat','—')}
+    ${statCard('download','Latest Upload',latestDoc?fmtDateShort(latestDoc.uploadDate):'—',latestDoc?esc(latestDoc.type+' Â· '+latestDoc.student):'No uploads yet','flat','—')}
   </div>
   <div class="card folder">
     <div class="card-head">
@@ -6411,7 +6444,7 @@ function iepDocumentsTab(){
   </div>
 
   <div class="card folder" style="margin-bottom:16px;">
-    <div class="card-head"><h3>Upload IEP Document</h3><span class="hint">${IEP_DOC_FORMATS.join(' · ')} · max ${IEP_DOC_MAX_MB}MB</span></div>
+    <div class="card-head"><h3>Upload IEP Document</h3><span class="hint">${IEP_DOC_FORMATS.join(' Â· ')} Â· max ${IEP_DOC_MAX_MB}MB</span></div>
     <div class="field-row" style="display:flex;gap:14px;flex-wrap:wrap;">
       <div class="field-group" style="flex:1;min-width:200px;"><label class="field-label">Student</label>
         <select class="select" id="iep-up-student">${STATE.ieps.map(x=>`<option value="${x.id}">${esc(x.student)} — ${x.learnerId}</option>`).join('')}</select>
@@ -6491,7 +6524,7 @@ function iepDocumentsTab(){
     </div>
     <div class="card folder">
       <div class="card-head"><h3>Recently Uploaded</h3><span class="hint">Latest activity</span></div>
-      ${recent.map(d=>`<div class="list-row"><span>${esc(d.student)} · ${esc(d.type)} <span class="mono muted">${d.version}</span></span><span class="mono muted">${fmtDateShort(d.uploadDate)}</span></div>`).join('')}
+      ${recent.map(d=>`<div class="list-row"><span>${esc(d.student)} Â· ${esc(d.type)} <span class="mono muted">${d.version}</span></span><span class="mono muted">${fmtDateShort(d.uploadDate)}</span></div>`).join('')}
       <h4 style="font-size:13px;margin:14px 0 6px;">Records With Missing Files</h4>
       ${missing.length? missing.map(x=>`<div class="list-row"><span>${esc(x.student)} <span class="mono muted">${x.code}</span></span><span class="badge inactive">Missing</span></div>`).join('')
         : `<p class="muted">All records have their required documents.</p>`}
@@ -6590,7 +6623,7 @@ function renderIepDocModal(id){
       <div style="border:1px solid #E7E9EE;border-radius:12px;background:#F7F8FA;height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;">
         <span style="color:#6D1F2B;">${ICO.assign}</span>
         <strong style="font-size:14px;">${esc(d.type)} — ${esc(d.student)}</strong>
-        <span class="muted mono">${d.id} · ${d.version} · ${fmtSize(d.sizeMB)}</span>
+        <span class="muted mono">${d.id} Â· ${d.version} Â· ${fmtSize(d.sizeMB)}</span>
         <span class="hint">Document preview (sample rendering)</span>
       </div>
       <div class="list-row"><span class="muted">Uploaded By</span><span>${esc(d.uploadedBy)}</span></div>
@@ -6694,7 +6727,7 @@ function generateIepReport(id, title){
   document.getElementById('iep-report-preview').innerHTML = `
   <div class="card folder">
     <div class="card-head">
-      <div><h3>${esc(title)}</h3><span class="muted">Generated ${fmtDate(new Date())} · ${ieps.length} IEPs covered</span></div>
+      <div><h3>${esc(title)}</h3><span class="muted">Generated ${fmtDate(new Date())} Â· ${ieps.length} IEPs covered</span></div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost btn-sm" onclick="toast('Exporting PDF...','info')">${ICO.download} Export PDF</button>
         <button class="btn btn-ghost btn-sm" onclick="toast('Exporting Excel...','info')">${ICO.download} Export Excel</button>
@@ -6913,7 +6946,7 @@ function generateReport(id,title){
     <div class="card-head">
       <div>
         <h3>${esc(title)} Report</h3>
-        <span class="muted">Generated ${fmtDate(new Date())} · Grade & Section: All</span>
+        <span class="muted">Generated ${fmtDate(new Date())} Â· Grade & Section: All</span>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost btn-sm" onclick="toast('Exporting PDF...','info')">${ICO.download} Export PDF</button>
@@ -7384,29 +7417,29 @@ async function loadAdminProfile(user){
   return true;
 }
 async function checkFirstRun(){
+  // FIX: ensureDefaultAdminExists() and provisionDefaultAdmin() were fully
+  // wired up (including the fallback to showSetupScreen()) but nothing
+  // ever called them — so a brand-new project with zero admin accounts
+  // landed on a bare login form with no way to sign in and no way to
+  // create the first account. Auto-create/repair the guaranteed default
+  // admin first, then decide which screen to show.
+  await ensureDefaultAdminExists();
   try{
     const snap = await db.collection('admins').limit(1).get();
     const usnap = await db.collection('users').where('role','==','admin').limit(1).get();
-    const hasAnyAdmin = !snap.empty || !usnap.empty;
-    if (hasAnyAdmin){
-      // FIX: this used to stop here whenever ANY admin already existed —
-      // which, on an already-deployed system like this one, is every
-      // time. That meant the fixed default account was never actually
-      // created, so logging in with it correctly failed as "Incorrect
-      // email or password" (it genuinely didn't exist in Firebase Auth).
-      // Now the fixed login is guaranteed to exist independently of
-      // whatever other admin accounts you already have — this runs
-      // quietly in the background without disturbing the login screen.
-      showLoginScreen();
-      ensureDefaultAdminExists();
+    if(snap.empty && usnap.empty){
+      // Still no admin account of any kind (auto-create silently failed
+      // and there's nothing to fall back on yet) — go straight to manual
+      // setup instead of a login form nobody can use.
+      showSetupScreen();
       return;
     }
-    await provisionDefaultAdmin();
   }catch(err){
-    console.error('Failed to check for existing admins:', err);
-    showLoginScreen('Could not reach the database. Check your connection and Firebase configuration.');
+    console.error('checkFirstRun: could not check for an existing admin:', err);
   }
+  showLoginScreen();
 }
+
 /* Makes sure DEFAULT_ADMIN_EMAIL exists in Firebase Auth even when other
    admin accounts already exist — creating an account also signs the
    browser in as that account, so this signs back out immediately
