@@ -27,6 +27,34 @@ function expiresIn24h() {
   return new Date(Date.now() + 24 * 3600 * 1000).toISOString();
 }
 
+// Wraps auth.createUser() so the admin gets a clear, actionable 409 instead
+// of a generic 500 when the email is already registered — Firebase Auth
+// emails are unique project-wide (shared by teacher/parent/admin accounts),
+// so this is a routine, expected failure mode, not a server error.
+async function createAuthUser({ email, password, displayName }) {
+  try {
+    return await auth.createUser({ email, password, displayName });
+  } catch (err) {
+    if (err && err.code === 'auth/email-already-exists') {
+      throw new AppError(409, 'already-exists',
+        `${email} is already registered to another account in this project (teacher, parent, or admin). Use a different email, or remove the existing account first.`);
+    }
+    throw err;
+  }
+}
+
+// If a step AFTER auth.createUser() fails, the Auth user would otherwise be
+// stranded — permanently blocking that email from ever being used again,
+// with no corresponding record anywhere in Firestore to show it exists.
+// Call this from a catch block wrapping every step after user creation.
+async function rollbackAuthUser(uid) {
+  if (!uid) return;
+  await auth.deleteUser(uid).catch(() => {
+    // Best-effort — if this also fails, it'll surface as a future
+    // email-already-exists and need manual cleanup in the Firebase console.
+  });
+}
+
 /* ── createTeacherAccount ──────────────────────────────────────────────
    FIX: this used to take an admin-chosen `password` and activate the
    account immediately — no activation step ever happened, even though
@@ -43,56 +71,64 @@ function expiresIn24h() {
         password via activateTeacherAccount() below — that's the only
         thing that flips status to 'active' and burns the token. ── */
 async function createTeacherAccount({ name, email, section, phone }, callerUid) {
-  const userRecord = await auth.createUser({ email, password: genTempPassword(), displayName: name });
+  const userRecord = await createAuthUser({ email, password: genTempPassword(), displayName: name });
 
-  await db.collection('users').doc(userRecord.uid).set({
-    name, email, role: 'teacher', status: 'inactive',
-    fcmTokens: [],
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdBy: callerUid
-  });
-  // Mirrored into teachers/{uid} too — admin.html's Teacher Management
-  // table reads this richer collection (section/phone) directly; users/{uid}
-  // stays the lean login/role profile. Same uid links them.
-  await db.collection('teachers').doc(userRecord.uid).set({
-    name, email, section: section || '—', phone: phone || '',
-    status: 'Pending Activation', hasRealLogin: true, lastLogin: null,
-    createdAt: new Date().toISOString()
-  });
+  try {
+    await db.collection('users').doc(userRecord.uid).set({
+      name, email, role: 'teacher', status: 'inactive',
+      fcmTokens: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: callerUid
+    });
+    // Mirrored into teachers/{uid} too — admin.html's Teacher Management
+    // table reads this richer collection (section/phone) directly; users/{uid}
+    // stays the lean login/role profile. Same uid links them.
+    await db.collection('teachers').doc(userRecord.uid).set({
+      name, email, section: section || '—', phone: phone || '',
+      status: 'Pending Activation', hasRealLogin: true, lastLogin: null,
+      createdAt: new Date().toISOString()
+    });
 
-  // Human-readable display IDs — same TCH-####/EMP-#### shape admin.html's
-  // (previously dead) createActivationForTeacher() already used, so the
-  // existing Access & Activation table/detail view/QR code work exactly as
-  // designed once fed real data, instead of showing "undefined" for every
-  // field that function used to populate.
-  const countSnap = await db.collection('teacherActivations').count().get();
-  const seq = countSnap.data().count + 1;
-  const displayTeacherId = 'TCH-' + String(seq).padStart(4, '0');
-  const employeeId = 'EMP-' + String(1000 + seq).slice(1);
+    // Human-readable display IDs — same TCH-####/EMP-#### shape admin.html's
+    // (previously dead) createActivationForTeacher() already used, so the
+    // existing Access & Activation table/detail view/QR code work exactly as
+    // designed once fed real data, instead of showing "undefined" for every
+    // field that function used to populate.
+    const countSnap = await db.collection('teacherActivations').count().get();
+    const seq = countSnap.data().count + 1;
+    const displayTeacherId = 'TCH-' + String(seq).padStart(4, '0');
+    const employeeId = 'EMP-' + String(1000 + seq).slice(1);
 
-  const token = genActivationToken();
-  const activationExpires = expiresIn24h();
-  const activationRef = await db.collection('teacherActivations').add({
-    teacherRecordId: userRecord.uid,
-    teacherId: displayTeacherId,
-    employeeId,
-    name, email, section: section || '—', phone: phone || '—',
-    accountStatus: 'Pending Activation',
-    activationStatus: 'Pending',
-    activationMethod: '—',
-    token,
-    qrVersion: 1,
-    activationExpires,
-    emailSent: false,
-    emailSentAt: null,
-    failedAttempts: 0,
-    lastLogin: null,
-    device: '—', browser: '—', ip: '—', sessionActive: false,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdBy: callerUid
-  });
+    const token = genActivationToken();
+    const activationExpires = expiresIn24h();
+    const activationRef = await db.collection('teacherActivations').add({
+      teacherRecordId: userRecord.uid,
+      teacherId: displayTeacherId,
+      employeeId,
+      name, email, section: section || '—', phone: phone || '—',
+      accountStatus: 'Pending Activation',
+      activationStatus: 'Pending',
+      activationMethod: '—',
+      token,
+      qrVersion: 1,
+      activationExpires,
+      emailSent: false,
+      emailSentAt: null,
+      failedAttempts: 0,
+      lastLogin: null,
+      device: '—', browser: '—', ip: '—', sessionActive: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: callerUid
+    });
 
-  return { uid: userRecord.uid, activationId: activationRef.id, activationToken: token, activationExpires };
+    return { uid: userRecord.uid, activationId: activationRef.id, activationToken: token, activationExpires };
+  } catch (err) {
+    // Don't strand an Auth user with no Firestore record behind it — that
+    // would permanently block this email with email-already-exists on every
+    // future retry, with nothing in Firestore to explain why.
+    await rollbackAuthUser(userRecord.uid);
+    throw err;
+  }
 }
 
 /* ── activateTeacherAccount ───────────────────────────────────────────
@@ -155,51 +191,56 @@ async function createParentAccount({ name, email, studentId, relationship }, cal
   const studentSnap = await studentRef.get();
   if (!studentSnap.exists) throw new AppError(404, 'not-found', 'That student record was not found.');
 
-  const userRecord = await auth.createUser({ email, password: genTempPassword(), displayName: name });
+  const userRecord = await createAuthUser({ email, password: genTempPassword(), displayName: name });
 
-  await db.collection('users').doc(userRecord.uid).set({
-    name, email, role: 'parent', status: 'inactive',
-    fcmTokens: [],
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdBy: callerUid
-  });
-  // Mirrored into parents/{uid} too — admin.html's Parent Management table
-  // and the "children" list read this richer collection directly.
-  await db.collection('parents').doc(userRecord.uid).set({
-    name, email, phone: '', children: [studentSnap.data().name || ''],
-    relationship: relationship || 'Guardian', status: 'Pending Activation', lastLogin: null
-  });
+  try {
+    await db.collection('users').doc(userRecord.uid).set({
+      name, email, role: 'parent', status: 'inactive',
+      fcmTokens: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: callerUid
+    });
+    // Mirrored into parents/{uid} too — admin.html's Parent Management table
+    // and the "children" list read this richer collection directly.
+    await db.collection('parents').doc(userRecord.uid).set({
+      name, email, phone: '', children: [studentSnap.data().name || ''],
+      relationship: relationship || 'Guardian', status: 'Pending Activation', lastLogin: null
+    });
 
-  const countSnap = await db.collection('parentActivations').count().get();
-  const seq = countSnap.data().count + 1;
-  const displayParentId = 'PAR-' + String(seq).padStart(4, '0');
+    const countSnap = await db.collection('parentActivations').count().get();
+    const seq = countSnap.data().count + 1;
+    const displayParentId = 'PAR-' + String(seq).padStart(4, '0');
 
-  const token = genActivationToken();
-  const activationExpires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-  const activationRef = await db.collection('parentActivations').add({
-    parentRecordId: userRecord.uid,
-    parentId: displayParentId,
-    name, email,
-    linkedStudentId: String(studentId),
-    linkedStudent: studentSnap.data().name || '—',
-    relationship: relationship || 'Guardian',
-    primaryGuardian: false,
-    emergencyContact: false,
-    accountStatus: 'Pending Activation',
-    activationStatus: 'Pending',
-    activationMethod: '—',
-    token,
-    qrVersion: 1,
-    activationExpires,
-    emailSent: false,
-    emailSentAt: null,
-    failedAttempts: 0,
-    lastLogin: null,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdBy: callerUid
-  });
+    const token = genActivationToken();
+    const activationExpires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    const activationRef = await db.collection('parentActivations').add({
+      parentRecordId: userRecord.uid,
+      parentId: displayParentId,
+      name, email,
+      linkedStudentId: String(studentId),
+      linkedStudent: studentSnap.data().name || '—',
+      relationship: relationship || 'Guardian',
+      primaryGuardian: false,
+      emergencyContact: false,
+      accountStatus: 'Pending Activation',
+      activationStatus: 'Pending',
+      activationMethod: '—',
+      token,
+      qrVersion: 1,
+      activationExpires,
+      emailSent: false,
+      emailSentAt: null,
+      failedAttempts: 0,
+      lastLogin: null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: callerUid
+    });
 
-  return { uid: userRecord.uid, activationId: activationRef.id, activationToken: token, activationExpires };
+    return { uid: userRecord.uid, activationId: activationRef.id, activationToken: token, activationExpires };
+  } catch (err) {
+    await rollbackAuthUser(userRecord.uid);
+    throw err;
+  }
 }
 
 /* ── verifyParentActivation ───────────────────────────────────────────
