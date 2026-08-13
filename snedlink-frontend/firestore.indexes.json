@@ -1,0 +1,49 @@
+{
+  "indexes": [
+    { "collectionGroup": "alerts", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sid", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "alerts", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "behaviorLogs", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sid", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "behaviorLogs", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "ieps", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sid", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "ieps", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "assessments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sid", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "assessments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "reports", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sid", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "reports", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]}
+  ],
+  "fieldOverrides": []
+}

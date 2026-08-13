@@ -1,0 +1,5 @@
+node_modules/
+.env
+logs/*.log
+.DS_Store
+capstone-2-f0d29-firebase-adminsdk-fbsvc-794038ae99.json

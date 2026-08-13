@@ -1,0 +1,257 @@
+{
+  "info": {
+    "name": "SNED-LINK+ Backend API",
+    "description": "Covers auth, admin account management, alerts/notifications/parent-requests, and the optional records passthrough. Set {{baseUrl}} and {{idToken}} as collection variables before running.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "idToken", "value": "PASTE_A_FIREBASE_ID_TOKEN_HERE" },
+    { "key": "teacherUid", "value": "" },
+    { "key": "parentUid", "value": "" },
+    { "key": "studentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "GET /api/auth/me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        },
+        {
+          "name": "PATCH /api/auth/me",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\"\n}" },
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "POST /api/admin/teachers",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Jane Teacher\",\n  \"email\": \"jane.teacher@example.com\",\n  \"password\": \"TempPass123!\"\n}" },
+            "url": "{{baseUrl}}/api/admin/teachers"
+          }
+        },
+        {
+          "name": "GET /api/admin/teachers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/admin/teachers"
+          }
+        },
+        {
+          "name": "PATCH /api/admin/teachers/:uid",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"disabled\"\n}" },
+            "url": "{{baseUrl}}/api/admin/teachers/{{teacherUid}}"
+          }
+        },
+        {
+          "name": "DELETE /api/admin/teachers/:uid",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/admin/teachers/{{teacherUid}}"
+          }
+        },
+        {
+          "name": "POST /api/admin/parents",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"John Parent\",\n  \"email\": \"john.parent@example.com\",\n  \"studentId\": \"{{studentId}}\"\n}" },
+            "url": "{{baseUrl}}/api/admin/parents"
+          }
+        },
+        {
+          "name": "POST /api/admin/parents/:uid/reset-password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/admin/parents/{{parentUid}}/reset-password"
+          }
+        },
+        {
+          "name": "GET /api/admin/parents",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/admin/parents"
+          }
+        },
+        {
+          "name": "GET /api/admin/students",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/admin/students"
+          }
+        },
+        {
+          "name": "POST /api/admin/students",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Sam Student\",\n  \"grade\": \"3\",\n  \"teacherId\": \"{{teacherUid}}\"\n}" },
+            "url": "{{baseUrl}}/api/admin/students"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts / Notifications / Parent Requests",
+      "item": [
+        {
+          "name": "POST /api/alerts",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Behavior escalation\",\n  \"desc\": \"Needs immediate attention\",\n  \"teacherId\": \"{{teacherUid}}\",\n  \"sid\": \"{{studentId}}\",\n  \"severity\": \"Critical\"\n}" },
+            "url": "{{baseUrl}}/api/alerts"
+          }
+        },
+        {
+          "name": "GET /api/alerts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/alerts?sid={{studentId}}"
+          }
+        },
+        {
+          "name": "POST /api/notifications",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Weekly report ready\",\n  \"desc\": \"Progress report available\",\n  \"forParents\": true,\n  \"sid\": \"{{studentId}}\"\n}" },
+            "url": "{{baseUrl}}/api/notifications"
+          }
+        },
+        {
+          "name": "GET /api/notifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/notifications"
+          }
+        },
+        {
+          "name": "POST /api/parent-requests",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"parentName\": \"John Parent\",\n  \"message\": \"Could I get a copy of the latest IEP?\",\n  \"studentId\": \"{{studentId}}\"\n}" },
+            "url": "{{baseUrl}}/api/parent-requests"
+          }
+        },
+        {
+          "name": "GET /api/parent-requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/parent-requests"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Records (optional passthrough)",
+      "item": [
+        {
+          "name": "GET /api/behavior-logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/behavior-logs?sid={{studentId}}"
+          }
+        },
+        {
+          "name": "POST /api/behavior-logs",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{idToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"sid\": \"{{studentId}}\",\n  \"note\": \"Calm and on-task all morning.\"\n}" },
+            "url": "{{baseUrl}}/api/behavior-logs"
+          }
+        },
+        {
+          "name": "GET /api/ieps",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/ieps?sid={{studentId}}"
+          }
+        },
+        {
+          "name": "GET /api/assessments",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/assessments?sid={{studentId}}"
+          }
+        },
+        {
+          "name": "GET /api/reports",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{idToken}}" }],
+            "url": "{{baseUrl}}/api/reports?sid={{studentId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

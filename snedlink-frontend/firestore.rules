@@ -1,0 +1,259 @@
+/* firestore.rules
+   ─────────────────────────────────────────────────────────────────────────
+   Deploy with:
+     firebase deploy --only firestore:rules
+   (or paste directly into Firebase Console → Firestore Database → Rules)
+
+   ONE shared database, THREE portals (Teacher, Admin, Parent) — this is
+   the security model that makes them a single connected system instead of
+   three separate apps that happen to look similar.
+
+   Canonical model:
+   - users/{uid}          one doc per login account.
+                           role: 'admin' | 'teacher' | 'parent'
+                           status: 'active' | 'locked' | 'inactive' | 'suspended'
+                           fcmTokens: [ ...push tokens for this person's devices ]
+   - students/{sid}        one doc per student.
+                           teacherId  → exactly one users/{uid} (role='teacher')
+                           parentUids → zero or more users/{uid} (role='parent')
+   - alerts/{aid}           critical, time-sensitive alerts. sid → students/{sid}.
+                           Visible to: the student's teacher, all admins, and
+                           every parent linked to that student.
+   - notifications/{nid}    everyday notifications. sid → students/{sid} (optional).
+                           forParents:true makes it visible to the student's
+                           linked parents too, not just the teacher/admin.
+   - parentRequests/{rid}   messages/requests a parent sends to the school.
+   - observations/{oid}     activity photos + AI recommendations a teacher
+                           actively sends to a student's linked parent(s).
+                           sid → students/{sid}.
+
+   admins/, teachers/, parents/, assignments/, audit/, ieps/, iepDocs/,
+   teacherActivations/, parentActivations/, emailLog/, teacherEmailLog/,
+   archived/, backups/ — the Admin Portal's own additional record-keeping
+   collections. Admin-only; not read by the Teacher or Parent Portal.
+   Account activation (teacherActivations/parentActivations) goes through
+   the Express backend's Admin SDK instead (accountService.js), which
+   bypasses these rules entirely, so a not-yet-logged-in teacher/parent
+   never touches Firestore directly for their own activation record.
+   ───────────────────────────────────────────────────────────────────────── */
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myProfile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+
+    // An admin is recognized two ways during the transition to the unified
+    // users/ collection: a users/{uid} doc with role=='admin' (the new,
+    // canonical way — usable from all three portals), OR a legacy
+    // admins/{uid} doc (the Admin Portal's original bootstrap mechanism).
+    // Both are treated as fully equivalent everywhere in these rules.
+    function hasUsersAdminDoc() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myProfile().role == 'admin' && myProfile().status == 'active';
+    }
+    function hasLegacyAdminDoc() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isAdmin() { return hasUsersAdminDoc() || hasLegacyAdminDoc(); }
+
+    function isActiveTeacher() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myProfile().role == 'teacher' && myProfile().status == 'active';
+    }
+    function isActiveParent() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myProfile().role == 'parent' && myProfile().status == 'active';
+    }
+    function isLinkedParent(sid) {
+      return isActiveParent()
+        && exists(/databases/$(database)/documents/students/$(sid))
+        && (request.auth.uid in get(/databases/$(database)/documents/students/$(sid)).data.parentUids);
+    }
+
+    // ── users (login profiles) ──────────────────────────────────────────
+    match /users/{uid} {
+      // Anyone signed in can read their own profile (needed at login to
+      // check status/role). Admins can read every profile (people lists).
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // A person may only update their own fcmTokens/lastLogin — nothing
+      // that would let them change their own role or status.
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['fcmTokens', 'lastLogin']));
+
+      // Creating/deleting user profiles happens via Cloud Functions
+      // (createTeacherAccount / createParentAccount, Admin SDK) — not
+      // directly from any client.
+      allow create, delete: if false;
+    }
+
+    // ── students ─────────────────────────────────────────────────────────
+    match /students/{sid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || isLinkedParent(sid);
+
+      // Teachers can update the students already assigned to them, but may
+      // NOT change who a student is assigned to, or their own linked
+      // parents — only an admin reassigns teachers or links parents.
+      allow update: if isAdmin()
+        || (isActiveTeacher()
+            && resource.data.teacherId == request.auth.uid
+            && request.resource.data.teacherId == resource.data.teacherId
+            && request.resource.data.parentUids == resource.data.parentUids);
+
+      // Only an admin creates/deletes student records.
+      allow create, delete: if isAdmin();
+    }
+
+    // ── alerts ──────────────────────────────────────────────────────────
+    match /alerts/{aid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || (resource.data.sid != null && isLinkedParent(string(resource.data.sid)));
+      // A teacher may only resolve (flip `resolved`) their own alerts.
+      allow update: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved']));
+      // Alerts are created by the app on behalf of the signed-in teacher,
+      // by an admin, or by a trusted server process (Cloud Functions using
+      // the Admin SDK, which bypasses these rules entirely).
+      allow create: if isAdmin()
+        || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ── notifications ───────────────────────────────────────────────────
+    match /notifications/{nid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || (resource.data.forParents == true && resource.data.sid != null && isLinkedParent(string(resource.data.sid)));
+      allow update: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+      allow create: if isAdmin()
+        || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ── parent → school messages/requests ──────────────────────────────
+    // Also used for "Request IEP / Behavioral Kit access": a parent files
+    // one of these with type:'IEP'|'Behavioral Kit' and teacherId set to
+    // their child's assigned teacher, so it shows up live in that
+    // teacher's "Access & Activation" inbox, not just the Admin Portal.
+    match /parentRequests/{rid} {
+      allow read: if isAdmin()
+        || (isActiveParent() && resource.data.parentUid == request.auth.uid)
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+      allow create: if isActiveParent() && request.resource.data.parentUid == request.auth.uid;
+      // Admin can change anything (status/triage). The assigned teacher may
+      // only record their Approve/Decline decision + read state — never the
+      // admin's own 'status' triage field or who the request belongs to.
+      allow update: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['decision', 'decisionAt', 'read']));
+      allow delete: if isAdmin();
+    }
+
+    // ── documents/access a teacher has granted a parent (IEP summary,
+    //    Behavioral Monitoring Kit, etc.) in response to a parentRequests
+    //    record above ─────────────────────────────────────────────────
+    match /grantedDocuments/{gid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || (resource.data.sid != null && isLinkedParent(string(resource.data.sid)));
+      allow create: if isAdmin() || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow update: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+      allow delete: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+    }
+
+    // ── observations ─────────────────────────────────────────────────
+    // Content the teacher actively "Sends to Parent": activity/behavior
+    // photos and AI recommendations (see teacher_portal.html's
+    // slSendObservationToParent). sid → students/{sid}. Only that
+    // student's own teacher/admin/linked-parent(s) can ever read one —
+    // never a broadcast, and never any other student's parent.
+    match /observations/{oid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || (resource.data.sid != null && isLinkedParent(string(resource.data.sid)));
+      allow create: if isAdmin()
+        || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow update, delete: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+    }
+
+    // ── iepPlans ─────────────────────────────────────────────────────
+    // The LIVE, editable IEP for a student — teacher_portal.html's IEP
+    // Generator persists here (was previously never persisted at all —
+    // lived only in browser memory and reset every reload). One doc per
+    // student, keyed by sid. Parents get read-only access so an activated
+    // plan can eventually be shared, same access pattern as observations.
+    match /iepPlans/{sid} {
+      allow read: if isAdmin()
+        || (isActiveTeacher() && resource.data.teacherId == request.auth.uid)
+        || isLinkedParent(sid);
+      allow write: if isAdmin()
+        || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+    }
+
+    // ── archived reports / IEP versions (read-only history) ────────────
+    match /archivedReports/{id} {
+      allow read: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+      // FIX: same gap archivedIepVersions had — any active teacher could
+      // write ANY teacher's archived report doc. Scoped now that this
+      // collection is actually written to (see slArchiveReport).
+      allow create: if isAdmin() || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow update, delete: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+    }
+    match /archivedIepVersions/{id} {
+      allow read: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid) || (resource.data.sid != null && isLinkedParent(string(resource.data.sid)));
+      // FIX: this used to allow any active teacher to write ANY archived
+      // version doc, not just their own students' — harmless while nothing
+      // wrote here at all, but a real gap now that iepGenAction('activate')
+      // actually persists version history here. Scoped to match every
+      // other per-student collection in this file.
+      allow create: if isAdmin() || (isActiveTeacher() && request.resource.data.teacherId == request.auth.uid);
+      allow update, delete: if isAdmin() || (isActiveTeacher() && resource.data.teacherId == request.auth.uid);
+    }
+
+    // ── legacy Admin Portal bootstrap doc ───────────────────────────────
+    // Kept so the very first administrator can still be created the
+    // original way; every admin created from here on is also mirrored
+    // into users/{uid} with role=='admin' so all three portals recognize
+    // them identically (see admin.html's dual-write on admin creation).
+    match /admins/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ── Admin Portal's own additional record-keeping (admin-only, not
+    //    read by the Teacher or Parent Portal) ──────────────────────────
+    //    teacherActivations/ and parentActivations/ belong here too —
+    //    activation now goes through the Express backend's Admin SDK
+    //    (accountService.js: activateTeacherAccount / activateParentAccount),
+    //    which bypasses these rules entirely, so a not-yet-logged-in
+    //    teacher/parent never needs direct Firestore access to their own
+    //    activation record the way an earlier client-only version of this
+    //    flow briefly required. Kept admin-only here, same as everything
+    //    else in this block.
+    match /{collection}/{docId} {
+      allow read, write: if isAdmin()
+        && collection in ['teachers','parents','assignments','audit','failedLogins',
+                           'backups','ieps','iepDocs','teacherActivations',
+                           'parentActivations','emailLog','teacherEmailLog','archived'];
+    }
+
+    // Deny everything else by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

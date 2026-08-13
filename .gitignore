@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+
+# Firebase Admin credentials
+*firebase-adminsdk*.json
+serviceAccount*.json
+
+# Secrets
+credentials/
+secrets/
+
+# Local development
+.DS_Store

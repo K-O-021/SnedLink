@@ -1,0 +1,25 @@
+{
+  "name": "snedlink-backend",
+  "version": "1.0.0",
+  "description": "SNED-LINK+ Express.js backend — replaces Firebase Cloud Functions (Firestore, Auth, and push notification logic behind a REST API).",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "express-validator": "^7.2.0",
+    "firebase-admin": "^12.3.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "private": true
+}
